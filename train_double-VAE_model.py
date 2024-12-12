@@ -28,10 +28,13 @@ if __name__ == "__main__":
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
     
+    # Set seeds
+    torch.manual_seed(0)
+    np.random.seed(0)
     
 
     # Load data
-    X_train, X_train_nan, X_train_missing, mask_train, y_train, X_val, X_val_nan, X_val_missing, mask_val, y_val = load_and_preprocess_data(id=args.id)
+    X_train, X_train_nan, X_train_missing, mask_train, y_train, X_val, X_val_nan, X_val_missing, mask_val, y_val = load_and_preprocess_data(idx=args.id)
     y_train, y_val = label_encoding(y_train, y_val)
     labels_masking = kmeans_masking(mask_val)
 
@@ -41,7 +44,7 @@ if __name__ == "__main__":
     n_samples = 20         # Importance samples
     batch_size = 16        # Batch size
     num_iterations = 100000        # Number of iterations
-    num_epochs = 1000 #num_iterations // (X_train.shape[0] // batch_size)    # Number of epochs
+    num_epochs = min(num_iterations // (X_train.shape[0] // batch_size),300)    # Number of epochs
     learning_rate = 1e-3   # Learning rate
 
     rmse_total = []
