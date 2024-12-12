@@ -4,10 +4,10 @@ from ucimlrepo import fetch_ucirepo
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
-def load_data_from_uci(id=17):
+def load_data_from_uci(idx=17):
   
     # Fetch dataset
-    dataset = fetch_ucirepo(id=17)
+    dataset = fetch_ucirepo(id=idx)
 
     # Data (as pandas dataframes)
     X_df = dataset.data.features
@@ -73,8 +73,8 @@ def preprocess_data(X, y, flag_val=False, test_size=0.2, random_state=42):
 
     return X_train, X_train_nan, X_train_missing, mask_train, y_train, X_val, X_val_nan, X_val_missing, mask_val, y_val
 
-def load_and_preprocess_data(id=17, flag_val=False, test_size=0.2, random_state=42):
-    X, y = load_data_from_uci(id)
+def load_and_preprocess_data(idx=17, flag_val=False, test_size=0.2, random_state=42):
+    X, y = load_data_from_uci(idx=idx)
     return preprocess_data(X, y, flag_val, test_size, random_state)
 
 def label_encoding(y_train, y_val):
