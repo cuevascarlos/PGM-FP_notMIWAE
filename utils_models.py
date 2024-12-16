@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.distributions as dist
+from torch.distributions.independent import Independent
+
 
 class Encoder(nn.Module):
     def __init__(self, input_dim, layer_sizes, latent_dim, activation):
@@ -58,6 +60,55 @@ class MaskDecoder(nn.Module):
             eta = layer(eta)
         logits = self.logits_head(eta)
         return logits
+
+class notMIWAE(nn.Module):
+    def __init__(self, input_dim, latent_dim, enc_layer_sizes, dec_layer_sizes, activation = nn.Tanh(), missing_process='selfmask'):
+        super().__init__()
+        self.encoder = Encoder(input_dim, enc_layer_sizes, latent_dim, activation)
+        self.decoder = ImputationDecoder(latent_dim, dec_layer_sizes, input_dim, activation)
+        self.activation = activation
+        self.missing_process = MissingProcess(input_dim, missing_process)
+        self.prior = dist.normal.Normal(loc = 0., scale = 1.)
+
+    def forward(self, x, s, n_samples = 1, return_x_samples = False):
+        q_mu, q_log_std2 = self.encoder(x)
+        law_z_given_x = dist.normal.Normal(loc = q_mu, scale = torch.exp(q_log_std2 * 0.5))
+
+        # Sampling and computing log_probs
+        z_samples = law_z_given_x.rsample((n_samples,)) # (n_samples, batch, n_latent)
+        log_prob_z_given_x = law_z_given_x.log_prob(z_samples).sum(dim=-1) # (n_samples, batch))
+
+        # Transposing
+        z_samples = z_samples.transpose(0,1) # (batch, n_samples, n_latent)
+        log_prob_z_given_x = log_prob_z_given_x.transpose(0,1) # (batch, n_samples)
+
+        # Prior
+        log_prob_z = self.prior.log_prob(z_samples).sum(dim=-1) # (batch, n_samples)
+
+        p_mu, p_std = self.decoder(z_samples)
+        law_x_given_z = dist.normal.Normal(loc = p_mu, scale = p_std)
+        x_samples = law_x_given_z.rsample()
+        log_prob_x_given_z = (law_x_given_z.log_prob(x.unsqueeze(1)) * s.unsqueeze(1)).sum(dim=-1) # (batch, n_samples)
+
+        mixed_x_samples = x_samples * (1-s).unsqueeze(1) + (x*s).unsqueeze(1)
+        logits = self.missing_process(mixed_x_samples)
+        law_s_given_x = dist.bernoulli.Bernoulli(logits = logits)
+        log_prob_s_given_x = law_s_given_x.log_prob(s.unsqueeze(1)).sum(dim=-1) # (batch, n_samples)
+
+        if return_x_samples:
+            return q_mu, q_log_std2, p_mu, p_std, log_prob_z_given_x, log_prob_z, log_prob_x_given_z, log_prob_s_given_x, x_samples
+
+        return q_mu, q_log_std2, p_mu, p_std, log_prob_z_given_x, log_prob_z, log_prob_x_given_z, log_prob_s_given_x
+
+
+def not_miwae_loss(log_prob_z_given_x, log_prob_z, log_prob_x_given_z, log_prob_s_given_x, device="cpu"):
+    # print(log_prob_z.shape)
+    aux = torch.logsumexp(-log_prob_z_given_x + log_prob_z + log_prob_x_given_z + log_prob_s_given_x, dim = 0) - torch.log(torch.tensor([log_prob_z.shape[0]], device=device))
+    # print(aux.shape)
+    # print("loss")
+    loss =  - (torch.mean(torch.logsumexp(-log_prob_z_given_x + log_prob_z + log_prob_x_given_z + log_prob_s_given_x, dim = 0) - torch.log(torch.tensor([log_prob_z.shape[1]], device=device))))
+    # print(loss.shape)
+    return loss
 
 
 class DualVAE(nn.Module):
@@ -210,6 +261,70 @@ def train_2VAE(model, X_train, S_train, X_val, S_val, batch_size=128, num_epochs
         print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
         
     return train_loss_history, val_loss_history
+
+class MissingProcess(nn.Module):
+    def __init__(self, input_size, missing='selfmask', activation='tanh', hidden =100):
+        super().__init__()
+        self.missing = missing
+        if self.missing == 'selfmask':
+          w_value = torch.randn(size=(input_size,)) / np.sqrt(input_size)
+          b_value = torch.randn(size=(input_size,)) / np.sqrt(input_size)
+          self.w = nn.Parameter(w_value)
+          self.b = nn.Parameter(b_value)
+        if self.missing == 'selfmask_known':
+          w_value = torch.randn(size=(input_size,)) / np.sqrt(input_size)
+          # softplus
+          w_value = torch.nn.functional.softplus(w_value)
+          self.w = nn.Parameter(w_value)
+          b_value = torch.randn(size=(input_size,)) / np.sqrt(input_size)
+          self.b = nn.Parameter(b_value)
+        if self.missing == 'linear':
+          self.w = nn.Linear(input_size, input_size)
+        if self.missing == 'non_linear':
+          self.w = nn.Sequential(nn.Linear(input_size, hidden), nn.Tanh(), nn.Linear(hidden, input_size))
+
+
+    def forward(self, x):
+        if self.missing == 'selfmask':
+          return self.w * x + self.b
+        if self.missing == 'selfmask_known':
+          # softplus in training
+          if self.training:
+            self.w = nn.Parameter(nn.functional.softplus(self.w))
+          return self.w * x + self.b
+        if self.missing == 'linear':
+          return self.w(x)
+        if self.missing == 'non_linear':
+          return self.w(x)
+
+def rmse_imputation(x_orginal, x, s, model, nb_samples = 1_000, device = "cpu"):
+    """
+    Return the rmse on the missing data and x with the missing values
+    """
+
+    x = torch.tensor(x, dtype=torch.float32, device=device)
+    s = torch.tensor(s, dtype=torch.float32, device=device)
+    x_orginal = torch.tensor(x_orginal, dtype=torch.float32, device=device)
+
+    x_mixed = torch.zeros_like(x_orginal, device=device)
+    N = x_orginal.size(0)
+    with torch.no_grad():
+        for i in range(N):
+            x_batch = x[i,:].unsqueeze(0)
+            s_batch = s[i,:].unsqueeze(0)
+            _, _, _, _, log_prob_s_given_x, log_prob_x_given_z, log_prob_z, log_prob_z_given_x, x_samples = model(x_batch,s_batch ,return_x_samples=True, n_samples=nb_samples) # 4x(batch, n_samples), (batch, n_samples, input_size)
+
+            aks = torch.softmax(log_prob_s_given_x + log_prob_x_given_z + log_prob_z - log_prob_z_given_x, dim = 1) # (batch,n_samples)
+
+            xm = torch.sum(aks.unsqueeze(-1)* x_samples, dim = 1)
+            
+            x_mixed[i,:] = x_batch * s_batch + (1-s_batch) * xm
+
+        rmse = torch.sqrt(torch.sum(((x_orginal - x_mixed) * (1 - s))**2) / torch.sum(1 - s))
+
+            # rmse2 = torch.sqrt(torch.sum(((x_orginal - x_mixed) **2 * (1 - s))) / torch.sum(1 - s))
+            # print( f'{rmse} =? {rmse2}')
+        return rmse, x_mixed
 
 def rmse_imputation_2VAE(x_orginal, x, s, model, nb_samples = 1_000):
 
