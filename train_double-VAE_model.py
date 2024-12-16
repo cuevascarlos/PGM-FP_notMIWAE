@@ -1,13 +1,4 @@
 # Train double-VAE model
-'''
-import torch
-import torch.nn as nn
-import numpy as np
-import torch.distributions as dist
-from ucimlrepo import fetch_ucirepo
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-'''
 import argparse
 from utils_data import *
 from utils_models import *
@@ -36,7 +27,7 @@ if __name__ == "__main__":
     # Load data
     X_train, X_train_nan, X_train_missing, mask_train, y_train, X_val, X_val_nan, X_val_missing, mask_val, y_val = load_and_preprocess_data(idx=args.id)
     y_train, y_val = label_encoding(y_train, y_val)
-    labels_masking = kmeans_masking(mask_val)
+    labels_masking = kmeans_masking(mask_val, n_clusters=2)
 
     d = X_train.shape[1]          # Input dimension
     n_hidden = 128
@@ -58,8 +49,7 @@ if __name__ == "__main__":
         # Train the model
         train_loss_history, val_loss_history = train_2VAE(model, X_train_missing, mask_train, X_val_missing, mask_val, 
                                                 batch_size, num_epochs, n_samples, learning_rate)
-        train_loss_histories.append(train_loss_history)
-        val_loss_histories.append(val_loss_history)
+        
 
         plot_function_history(train_loss_history, val_loss_history, title = args.out_dir+f"/iter_{i}/loss_history")
         
@@ -76,6 +66,12 @@ if __name__ == "__main__":
         
         ploting_latent(X_val_missing, mask_val, model, labels_masking, nb_samples=1000, components=2, title = f"{args.out_dir}/iter_{i}/Masking")
         ploting_latent(X_val_missing, mask_val, model, labels_masking, nb_samples=1000, components=3, title = f"{args.out_dir}/iter_{i}/Masking")
+
+    # Write it in a file in the output directory
+    with open(args.out_dir + "/rmse.txt", "w") as f:
+        f.write(f"Mean RMSE: {np.mean(rmse_total)}\n")
+        f.write(f"Std RMSE: {np.std(rmse_total)}\n")
+    f.close()
 
     print(f"Mean RMSE: {np.mean(rmse_total)}")
     print(f"Std RMSE: {np.std(rmse_total)}")
