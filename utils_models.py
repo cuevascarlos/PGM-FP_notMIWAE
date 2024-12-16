@@ -125,10 +125,10 @@ def not_miwae_loss_2VAE(log_prob_z_given_x, log_prob_z, log_prob_x_given_z, log_
     return -(torch.mean(torch.logsumexp(elbo, dim=1) - torch.log(torch.tensor([elbo.shape[1]]))))
 
 from sklearn.cluster import KMeans
-def kmeans_masking(S):
+def kmeans_masking(S, n_clusters = 5):
     # Make clusters for the binary vectors of S
-    S = S.cpu().numpy()
-    kmeans = KMeans(n_clusters=5, random_state=0).fit(S)
+    #S = S.cpu().numpy()
+    kmeans = KMeans(n_clusters, random_state=0).fit(S)
 
     # Get the cluster centers
     cluster_centers = kmeans.cluster_centers_
@@ -145,7 +145,7 @@ def kmeans_masking(S):
 
 def load_model(model_name, model):
     # Load the trained model file
-    model_loaded =torch.load('model.pth', weights_only = True)
+    model_loaded =torch.load(model_name, weights_only = True)
 
     model.load_state_dict(model_loaded)
     return model
@@ -223,10 +223,6 @@ def rmse_imputation_2VAE(x_orginal, x, s, model, nb_samples = 1_000):
 
             x_mixed[i,:] = x_batch * s_batch + (1-s_batch) * xm
 
-        #print(x_orginal, x_mixed, s)
         rmse = torch.sqrt(torch.sum(((x_orginal - x_mixed) * (1 - s))**2) / torch.sum(1 - s))
-        #print(rmse, torch.sum(1 - s), torch.sum(((x_orginal - x_mixed) * (1 - s))**2))
-            # rmse2 = torch.sqrt(torch.sum(((x_orginal - x_mixed) **2 * (1 - s))) / torch.sum(1 - s))
-            # print( f'{rmse} =? {rmse2}')
         return rmse, x_mixed
 
