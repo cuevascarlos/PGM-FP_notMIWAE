@@ -93,24 +93,36 @@ class DualVAE(nn.Module):
         p_mu_x, p_std_x = self.imputation_decoder(z_samples)
         law_x_given_z = dist.Normal(loc=p_mu_x, scale=p_std_x)
         x_samples = law_x_given_z.rsample() # (batch, n_samples, input_dim)
-        log_prob_x_given_z = (law_x_given_z.log_prob(x.unsqueeze(1)) * s.unsqueeze(1)).sum(dim=-1)
+        log_prob_x_given_z = (law_x_given_z.log_prob(x.unsqueeze(1))*s.unsqueeze(1)).sum(dim=-1) # (batch, n_samples)
 
         # Mask process
-        mixed_x = x * s + p_mu_x.mean(dim=1) * (1 - s)  # Combine known and imputed values
+        #print(f"S shape: {s.shape}")
+        #print(f"X shape: {x.shape}")
+        #print(f"X samples shape: {(x_samples.mean(dim=1)).shape}")
+        #print((x*s.unsqueeze(1)).shape, (x_samples.mean(dim=1)*(1 - s).unsqueeze(1)).shape)
+        mixed_x = (x*s).unsqueeze(1) + x_samples*(1 - s).unsqueeze(1)  # Combine known and imputed values
+        #print(mixed_x.shape)
         q_mu_eta, q_log_std_eta = self.encoder_mask(mixed_x)
         law_eta_given_x = dist.Normal(loc=q_mu_eta, scale=torch.exp(0.5 * q_log_std_eta))
-        eta_samples = law_eta_given_x.rsample((n_samples,)) # (n_samples, batch, latent_dim)
+        eta_samples = law_eta_given_x.rsample((n_samples,)) # (n_samples, batch, n_samples, latent_dim)
         log_prob_eta_given_x = law_eta_given_x.log_prob(eta_samples).sum(dim=-1)
-        eta_samples = eta_samples.transpose(0, 1)           # (batch, n_samples, latent_dim)
-        log_prob_eta_given_x = log_prob_eta_given_x.transpose(0, 1) # (batch, n_samples)
+        eta_samples = eta_samples.transpose(0, 1)           # (batch, n_samples, n_samples, latent_dim)
+        log_prob_eta_given_x = log_prob_eta_given_x.transpose(0, 1) # (batch, n_samples, n_samples)
         log_prob_eta = self.prior.log_prob(eta_samples).sum(dim=-1)
 
         logits_s = self.mask_decoder(eta_samples)
+        #print(logits_s.shape)
         #print(s.shape)
-        s_expanded = s.unsqueeze(1).expand(-1, n_samples, -1)
+        s_expanded = s.unsqueeze(1).expand(-1, n_samples, -1).unsqueeze(1).expand(-1, n_samples, -1, -1)
         law_s_given_eta = dist.Bernoulli(logits=logits_s)
         #print(logits_s.shape, s_expanded.shape)
         log_prob_s_given_eta = law_s_given_eta.log_prob(s_expanded).sum(dim=-1)
+        
+
+        # Expand log probabilities for z and x
+        log_prob_z_given_x = log_prob_z_given_x.unsqueeze(-1).expand(-1, -1, n_samples)
+        log_prob_z = log_prob_z.unsqueeze(-1).expand(-1, -1, n_samples)
+        log_prob_x_given_z = log_prob_x_given_z.unsqueeze(-1).expand(-1, -1, n_samples)
 
         # Return results
         if return_x_samples:
