@@ -3,8 +3,12 @@ import torch
 from ucimlrepo import fetch_ucirepo
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+from sklearn.impute import SimpleImputer
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
 
-def load_data_from_uci(idx=17):
+def load_data_from_uci(idx):
   
     # Fetch dataset
     dataset = fetch_ucirepo(id=idx)
@@ -12,10 +16,12 @@ def load_data_from_uci(idx=17):
     # Data (as pandas dataframes)
     X_df = dataset.data.features
     y_df = dataset.data.targets  # Not used for this unsupervised task
-
+    
     # Convert to numpy arrays
     X = X_df.values
     y = y_df.values
+    print(f"Shape: {X.shape}")
+    print(f"Labels: {np.unique(y)}")
 
     # Standardize the data
     scaler = StandardScaler()
@@ -73,7 +79,7 @@ def preprocess_data(X, y, flag_val=False, test_size=0.2, random_state=42):
 
     return X_train, X_train_nan, X_train_missing, mask_train, y_train, X_val, X_val_nan, X_val_missing, mask_val, y_val
 
-def load_and_preprocess_data(idx=17, flag_val=False, test_size=0.2, random_state=42):
+def load_and_preprocess_data(idx, flag_val=False, test_size=0.2, random_state=42):
     X, y = load_data_from_uci(idx=idx)
     return preprocess_data(X, y, flag_val, test_size, random_state)
 
@@ -90,3 +96,32 @@ def label_encoding(y_train, y_val):
     y_val_mapped = np.array([y_mapping[y[0]] for y in y_val])
 
     return y_train_mapped, y_val_mapped
+
+def median_imputation(Xnan, X, S):
+    imp = SimpleImputer(missing_values=np.nan, strategy='median')
+    imp.fit(Xnan)
+    Xrec = imp.transform(Xnan)
+    RMSE = np.sqrt(np.sum((X - Xrec) ** 2 * (1 - S)) / np.sum(1 - S))
+    return Xrec, RMSE
+
+def mean_imputation(Xnan, X, S):
+    imp = SimpleImputer(missing_values=np.nan, strategy='mean')
+    imp.fit(Xnan)
+    Xrec = imp.transform(Xnan)
+    RMSE = np.sqrt(np.sum((X - Xrec) ** 2 * (1 - S)) / np.sum(1 - S))
+    return Xrec, RMSE
+
+def missforest_imputation(Xnan, X,S):
+    estimator = RandomForestRegressor(n_estimators=100)
+    imp = IterativeImputer(estimator=estimator, random_state=0)
+    imp.fit(Xnan)
+    Xrec = imp.transform(Xnan)
+    RMSE = np.sqrt(np.sum((X - Xrec) ** 2 * (1 - S)) / np.sum(1 - S))
+    return Xrec, RMSE
+
+def mice_imputation(Xnan, X, S):
+    imp = IterativeImputer(max_iter=10, random_state=0)
+    imp.fit(Xnan)
+    Xrec = imp.transform(Xnan)
+    RMSE = np.sqrt(np.sum((X - Xrec) ** 2 * (1 - S)) / np.sum(1 - S))
+    return Xrec, RMSE
