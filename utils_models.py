@@ -326,7 +326,7 @@ def rmse_imputation(x_orginal, x, s, model, nb_samples = 1_000, device = "cpu"):
             # print( f'{rmse} =? {rmse2}')
         return rmse, x_mixed
 
-def rmse_imputation_2VAE(x_orginal, x, s, model, nb_samples = 1_000):
+def rmse_imputation_2VAE(x_orginal, x, s, model, batch_size = 128, nb_samples = 1_000):
 
     """
     Return the rmse on the missing data and x with the missing values 
@@ -336,20 +336,34 @@ def rmse_imputation_2VAE(x_orginal, x, s, model, nb_samples = 1_000):
     s = torch.FloatTensor(s)
     x_orginal = torch.FloatTensor(x_orginal)
 
-    x_mixed = np.zeros_like(x_orginal)
+    x_mixed = np.zeros_like(x_orginal)#.unsqueeze(1).expand(-1, nb_samples, -1))
     N = x_orginal.size(0)
+    # Configurar dispositivo (CPU o GPU)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    # Mover el modelo a la GPU si es necesario
+    model = model.to(device)
     with torch.no_grad():
         for i in range(N):
-            x_batch = x[i,:].unsqueeze(0)
-            s_batch = s[i,:].unsqueeze(0)
-            _, _, _, _, log_prob_z_given_x, log_prob_z, log_prob_x_given_z, q_mu_eta, q_log_std2_eta, log_prob_eta_given_x, log_prob_eta, log_prob_s_given_eta, x_samples = model(x_batch,s_batch ,return_x_samples=True, n_samples=nb_samples) # 4x(batch, n_samples), (batch, n_samples, input_size)
-
-            aks = torch.softmax(log_prob_z + log_prob_x_given_z + log_prob_s_given_eta - log_prob_z_given_x + log_prob_eta - log_prob_eta_given_x, dim = 1) # (batch,n_samples)
+            x_batch = x[i:i+batch_size].to(device)
+            s_batch = s[i:i+batch_size].to(device)
             
+            _, _, _, _, log_prob_z_given_x, log_prob_z, log_prob_x_given_z, _, _, _, _, _, x_samples = model(x_batch,s_batch ,return_x_samples=True, n_samples=nb_samples) # 4x(batch, n_samples), (batch, n_samples, input_size)
+
+            # Remove the extra dim in logs
+            print(log_prob_z_given_x.shape, log_prob_z.shape, log_prob_x_given_z.shape)
+            log_prob_z_given_x = log_prob_z_given_x[..., 0]
+            log_prob_z = log_prob_z[..., 0]
+            log_prob_x_given_z = log_prob_x_given_z[..., 0]
+            print(log_prob_z_given_x.shape, log_prob_z.shape, log_prob_x_given_z.shape)
+
+            aks = torch.softmax(log_prob_z + log_prob_x_given_z - log_prob_z_given_x, dim = 1) # (batch,n_samples)
             xm = torch.sum(aks.unsqueeze(-1)* x_samples, dim = 1)
 
-            x_mixed[i,:] = x_batch * s_batch + (1-s_batch) * xm
-
+            x_mixed[i:i+batch_size,:] = x_batch.cpu() * s_batch.cpu() + (1-s_batch.cpu()) * xm.cpu()
+            torch.cuda.empty_cache()
+        
         rmse = torch.sqrt(torch.sum(((x_orginal - x_mixed) * (1 - s))**2) / torch.sum(1 - s))
         return rmse, x_mixed
 
