@@ -36,7 +36,7 @@ if __name__ == "__main__":
     d = X_train.shape[1]          # Input dimension
     n_hidden = 128
     n_latent = d-1       # Latent space dimension (d - 1)
-    n_samples = 20         # Importance samples
+    n_samples = 1         # Importance samples
     batch_size = 16        # Batch size
     num_iterations = 100000        # Number of iterations
     num_epochs = num_iterations // (X_train.shape[0] // batch_size)    # Number of epochs
@@ -47,10 +47,10 @@ if __name__ == "__main__":
     model = load_model(args.model_name, model_architecture)
 
     # Plot latent space
-    ploting_latent(X_val_missing, mask_val, model, y_val, nb_samples=1000, components=2, title = f"{args.out_dir}/Labels")
-    ploting_latent(X_val_missing, mask_val, model, y_val, nb_samples=1000, components=3, title = f"{args.out_dir}/Labels")
-    ploting_latent(X_val_missing, mask_val, model, labels_masking, nb_samples=1000, components=2, title = f"{args.out_dir}/Masking")
-    ploting_latent(X_val_missing, mask_val, model, labels_masking, nb_samples=1000, components=3, title = f"{args.out_dir}/Masking")
+    ploting_latent(X_val_missing, mask_val, model, y_val, nb_samples=n_samples, components=2, title = f"{args.out_dir}/Labels")
+    ploting_latent(X_val_missing, mask_val, model, y_val, nb_samples=n_samples, components=3, title = f"{args.out_dir}/Labels")
+    ploting_latent(X_val_missing, mask_val, model, labels_masking, nb_samples=n_samples, components=2, title = f"{args.out_dir}/Masking")
+    ploting_latent(X_val_missing, mask_val, model, labels_masking, nb_samples=n_samples, components=3, title = f"{args.out_dir}/Masking")
 
 
     
