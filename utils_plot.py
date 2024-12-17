@@ -64,6 +64,12 @@ def ploting_latent(x, s, model, y, nb_samples = 1_000, components = 2, title = N
 
 from sklearn.manifold import TSNE
 def tsne_plot(x, y, components = 2, comp_plot = 2, title = None):
+    if x.dim() > 2:
+        n_samples = x.size(1)
+        x= x.view(-1, x.size(-1))
+        y = torch.tensor(y)
+        y = y.repeat_interleave(n_samples)
+        
     tsne = TSNE(n_components=components, verbose=1, random_state=42)
     tsne_results = tsne.fit_transform(x)
     fig = plt.figure()
@@ -79,6 +85,6 @@ def tsne_plot(x, y, components = 2, comp_plot = 2, title = None):
         plt.title(main_title)
         plt.savefig(f"{root}/{main_title}_{components}D.png")
     
-    #if comp_plot == 3:
-    #    plt.show()
+    if comp_plot == 3:
+        plt.show()
     plt.close()
