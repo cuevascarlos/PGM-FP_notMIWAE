@@ -56,7 +56,7 @@ if __name__ == "__main__":
         # Save the model
         torch.save(model.state_dict(), args.out_dir + f"/iter_{i}/" + args.model_name + ".pth")
 
-        rmse, _ = rmse_imputation_2VAE(X_val, X_val_missing, mask_val, model, nb_samples=1_000)
+        rmse, _ = rmse_imputation_2VAE(X_val, X_val_missing, mask_val, model, batch_size = 1, nb_samples=1_000)
         print(f"RMSE imputation (Validation): {rmse}")
         rmse_total.append(rmse)
 
