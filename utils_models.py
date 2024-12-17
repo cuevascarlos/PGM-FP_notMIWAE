@@ -131,7 +131,7 @@ class DualVAE(nn.Module):
         # Prior distribution (standard Normal)
         self.prior = dist.Normal(loc=0., scale=1.)
 
-    def forward(self, x, s, n_samples=1, return_x_samples=False):
+    def forward(self, x, s, n_samples=1, return_x_samples=False, only_imputation=False):
         # Generative process
         q_mu_z, q_log_std_z = self.encoder_gen(x)
         law_z_given_x = dist.Normal(loc=q_mu_z, scale=torch.exp(0.5 * q_log_std_z))
@@ -145,6 +145,10 @@ class DualVAE(nn.Module):
         law_x_given_z = dist.Normal(loc=p_mu_x, scale=p_std_x)
         x_samples = law_x_given_z.rsample() # (batch, n_samples, input_dim)
         log_prob_x_given_z = (law_x_given_z.log_prob(x.unsqueeze(1))*s.unsqueeze(1)).sum(dim=-1) # (batch, n_samples)
+
+        if only_imputation and return_x_samples:
+            return q_mu_z, q_log_std_z, p_mu_x, p_std_x, log_prob_z_given_x, log_prob_z, log_prob_x_given_z, x_samples
+
 
         # Mask process
         #print(f"S shape: {s.shape}")
@@ -338,25 +342,23 @@ def rmse_imputation_2VAE(x_orginal, x, s, model, batch_size = 128, nb_samples = 
 
     x_mixed = np.zeros_like(x_orginal)#.unsqueeze(1).expand(-1, nb_samples, -1))
     N = x_orginal.size(0)
-    # Configurar dispositivo (CPU o GPU)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #print(f"Using device: {device}")
 
-    # Mover el modelo a la GPU si es necesario
-    model = model.to(device)
+    #model = model.to(device)
     with torch.no_grad():
         for i in range(N):
-            x_batch = x[i:i+batch_size].to(device)
-            s_batch = s[i:i+batch_size].to(device)
+            x_batch = x[i:i+batch_size]#.to(device)
+            s_batch = s[i:i+batch_size]#.to(device)
             
-            _, _, _, _, log_prob_z_given_x, log_prob_z, log_prob_x_given_z, _, _, _, _, _, x_samples = model(x_batch,s_batch ,return_x_samples=True, n_samples=nb_samples) # 4x(batch, n_samples), (batch, n_samples, input_size)
+            _, _, _, _, log_prob_z_given_x, log_prob_z, log_prob_x_given_z, x_samples = model(x_batch,s_batch ,return_x_samples=True, only_imputation = True, n_samples=nb_samples) # 4x(batch, n_samples), (batch, n_samples, input_size)
 
             # Remove the extra dim in logs
-            print(log_prob_z_given_x.shape, log_prob_z.shape, log_prob_x_given_z.shape)
-            log_prob_z_given_x = log_prob_z_given_x[..., 0]
-            log_prob_z = log_prob_z[..., 0]
-            log_prob_x_given_z = log_prob_x_given_z[..., 0]
-            print(log_prob_z_given_x.shape, log_prob_z.shape, log_prob_x_given_z.shape)
+            #print(log_prob_z_given_x.shape, log_prob_z.shape, log_prob_x_given_z.shape)
+            #log_prob_z_given_x = log_prob_z_given_x[..., 0]
+            #log_prob_z = log_prob_z[..., 0]
+            #log_prob_x_given_z = log_prob_x_given_z[..., 0]
+            #print(log_prob_z_given_x.shape, log_prob_z.shape, log_prob_x_given_z.shape)
 
             aks = torch.softmax(log_prob_z + log_prob_x_given_z - log_prob_z_given_x, dim = 1) # (batch,n_samples)
             xm = torch.sum(aks.unsqueeze(-1)* x_samples, dim = 1)
@@ -365,5 +367,6 @@ def rmse_imputation_2VAE(x_orginal, x, s, model, batch_size = 128, nb_samples = 
             torch.cuda.empty_cache()
         
         rmse = torch.sqrt(torch.sum(((x_orginal - x_mixed) * (1 - s))**2) / torch.sum(1 - s))
-        return rmse, x_mixed
+    #model = model.to("cpu")
+    return rmse, x_mixed
 
